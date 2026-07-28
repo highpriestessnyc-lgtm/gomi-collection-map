@@ -26,8 +26,34 @@
     overscroll-behavior:none;}
   #app{display:flex; flex-direction:column; height:100vh; height:100dvh;}
 
+  /* ---- Home (course select) ---- */
+  #home-view{display:flex; flex-direction:column; flex:1; min-height:0; background:var(--ink);}
+  .home-header{padding:28px 20px 18px; flex-shrink:0;}
+  .home-header .brand{margin-bottom:8px;}
+  .home-date{font-size:13px; color:var(--muted); font-weight:700;}
+  .home-title{font-size:22px; font-weight:800; margin-top:14px;}
+  #courseCards{flex:1; overflow-y:auto; padding:4px 20px 30px; display:flex; flex-direction:column; gap:12px;}
+  .course-card{
+    background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:18px 18px;
+    display:flex; align-items:center; justify-content:space-between; cursor:pointer;
+  }
+  .course-card:active{background:var(--panel-2);}
+  .course-card .cc-name{font-size:18px; font-weight:800;}
+  .course-card .cc-sub{font-size:12.5px; color:var(--muted); margin-top:4px;}
+  .course-card .cc-count{font-size:22px; font-weight:800; color:var(--amber); font-variant-numeric:tabular-nums; white-space:nowrap;}
+  .course-card .cc-count small{display:block; font-size:11px; color:var(--muted); font-weight:700; text-align:right;}
+  .course-card.all-card{border-color:var(--amber); background:#241d0d;}
+  .home-empty{text-align:center; color:var(--muted); font-size:13.5px; line-height:1.9; margin-top:40px; padding:0 24px;}
+
+  /* ---- Work container ---- */
+  #work-container{display:none; flex-direction:column; flex:1; min-height:0;}
+  .back-btn{
+    flex-shrink:0; padding:7px 12px; border-radius:9px; background:var(--panel-2); border:1px solid var(--line);
+    color:var(--muted); font-size:12.5px; font-weight:700; cursor:pointer; margin-right:10px; align-self:flex-start;
+  }
+
   header{background:var(--panel); border-bottom:1px solid var(--line); padding:12px 14px 10px; flex-shrink:0; z-index:20;}
-  .top-row{display:flex; align-items:baseline; justify-content:space-between; gap:8px;}
+  .top-row{display:flex; align-items:center; justify-content:flex-start; gap:8px;}
   .brand{font-size:11px; letter-spacing:.14em; color:var(--muted); font-weight:600; text-transform:uppercase;}
   .date-line{font-size:20px; font-weight:800; letter-spacing:.01em; margin-top:2px;}
   .date-line .yobi{color:var(--amber); margin-left:6px; font-size:15px; font-weight:700;}
@@ -100,6 +126,7 @@
   .popup-name{font-weight:800; font-size:15px; margin-bottom:2px;}
   .popup-meta{font-size:11.5px; color:var(--amber); font-weight:700; margin-bottom:2px;}
   .popup-addr{font-size:12px; color:var(--muted); margin-bottom:10px;}
+  .popup-hint{font-size:10.5px; color:#7fb0ff; margin-bottom:8px;}
   .popup-actions{display:flex; gap:8px;}
   .popup-btn{flex:1; padding:9px 0; border-radius:9px; border:none; font-weight:800; font-size:13px; cursor:pointer;}
   .popup-btn.mark-done{background:var(--done); color:#06210f;}
@@ -207,48 +234,65 @@
   }
   .status-msg.err{color:var(--go);}
   .status-msg.ok{color:var(--done);}
+  .geo-status{
+    font-size:12.5px; font-weight:700; padding:8px 12px; border-radius:9px; margin-bottom:10px; display:none;
+  }
+  .geo-status.set{display:block; background:#12301e; color:#7fe0a8; border:1px solid #1f5a38;}
+  .geo-status.unset{display:block; background:#2e1414; color:#e6a3a3; border:1px solid #5a2323;}
 </style>
 </head>
 <body>
 <div id="app">
 
-  <header>
-    <div class="top-row">
-      <div>
-        <div class="brand">天文館 廃棄回収</div>
-        <div class="date-line" id="dateLine">-- -- --<span class="yobi" id="yobiLine"></span></div>
-      </div>
+  <div id="home-view">
+    <div class="home-header">
+      <div class="brand">天文館 廃棄回収</div>
+      <div class="home-date" id="homeDateLine">-- -- --</div>
+      <div class="home-title">コースを選んでください</div>
     </div>
-    <div class="progress-wrap">
-      <div class="progress-track"><div class="progress-fill" id="progFill"></div></div>
-      <div class="progress-num" id="progNum"><b>0</b> / 0 完了</div>
-      <div class="progress-num" id="remainNum" style="color:var(--go)">残り <b>0</b> 件</div>
-    </div>
-    <div class="tabbar">
-      <div class="tab active" data-tab="map">地図</div>
-      <div class="tab" data-tab="list">リスト</div>
-    </div>
-    <div class="course-row" id="courseRow"></div>
-    <div class="sort-row"><div class="sort-toggle" id="sortToggle">📍 近い順に並べる</div></div>
-  </header>
-
-  <div id="map-view">
-    <div id="map"></div>
-    <button class="style-toggle" id="styleToggle">🎨 <span id="styleLabel">モノクロ</span></button>
-    <div class="map-hint">長押し（PCは右クリック）でピン追加</div>
-    <button class="locate-btn" id="locateBtn">📍 現在地</button>
-    <div class="legend">
-      <span><i class="go"></i>未回収 <b id="legendGo">0</b></span>
-      <span><i class="done"></i>回収済 <b id="legendDone">0</b></span>
-    </div>
+    <div id="courseCards"></div>
   </div>
 
-  <div id="list-view"></div>
+  <div id="work-container">
+    <header>
+      <div class="top-row">
+        <div class="back-btn" id="backHome">← コース</div>
+        <div>
+          <div class="brand" id="workBrand">天文館 廃棄回収</div>
+          <div class="date-line" id="dateLine">-- -- --<span class="yobi" id="yobiLine"></span></div>
+        </div>
+      </div>
+      <div class="progress-wrap">
+        <div class="progress-track"><div class="progress-fill" id="progFill"></div></div>
+        <div class="progress-num" id="progNum"><b>0</b> / 0 完了</div>
+        <div class="progress-num" id="remainNum" style="color:var(--go)">残り <b>0</b> 件</div>
+      </div>
+      <div class="tabbar">
+        <div class="tab active" data-tab="map">地図</div>
+        <div class="tab" data-tab="list">リスト</div>
+      </div>
+      <div class="course-row" id="courseRow"></div>
+      <div class="sort-row"><div class="sort-toggle" id="sortToggle">📍 近い順に並べる</div></div>
+    </header>
+
+    <div id="map-view">
+      <div id="map"></div>
+      <button class="style-toggle" id="styleToggle">🎨 <span id="styleLabel">モノクロ</span></button>
+      <div class="map-hint">長押しでピン追加／既存ピンはドラッグで位置修正</div>
+      <button class="locate-btn" id="locateBtn">📍 現在地</button>
+      <div class="legend">
+        <span><i class="go"></i>未回収 <b id="legendGo">0</b></span>
+        <span><i class="done"></i>回収済 <b id="legendDone">0</b></span>
+      </div>
+    </div>
+
+    <div id="list-view"></div>
+
+    <button class="fab" id="fabAdd" aria-label="場所を追加">＋</button>
+  </div>
 
   <div class="toast" id="toast"></div>
   <div class="fatal-banner" id="fatalBanner"></div>
-
-  <button class="fab" id="fabAdd" aria-label="場所を追加">＋</button>
 
 </div>
 
@@ -263,7 +307,9 @@
       <label>住所（店舗名で見つからない場合のみ入力）</label>
       <input id="inAddr" type="text" placeholder="例）鹿児島県鹿児島市千日町5-8">
     </div>
-    <div class="hint">店舗名だけで検索します。近い候補が複数出るので、その中から合っているものをタップしてください。見つからない時だけ住所も入力してください。</div>
+    <button class="btn ghost" id="btnSearchPos" style="margin-bottom:10px; width:100%;">🔍 位置を検索</button>
+    <div class="hint">店舗名または住所で近くの候補を探します。合っているものをタップして位置を確定してください。位置を決めたら最後に下の「保存する」を押します。</div>
+    <div class="geo-status" id="geoStatus"></div>
     <div class="candidate-list" id="candidateList"></div>
     <div class="field">
       <label>コース</label>
@@ -308,6 +354,7 @@
   let map, markersById = {};
   let currentTab = 'map';
   let currentCourse = 'all';
+  let appView = 'home';
   let editingId = null;
   let selectedDays = new Set();
 
@@ -468,11 +515,12 @@
     visibleTodays().forEach(loc => {
       if(loc.lat == null || loc.lng == null) return;
       const done = !!collectedMap[loc.id];
-      const marker = L.marker([loc.lat, loc.lng], {icon:pinIcon(done)}).addTo(map);
+      const marker = L.marker([loc.lat, loc.lng], {icon:pinIcon(done), draggable:true, autoPan:true}).addTo(map);
       const popupHtml =
         '<div class="popup-name">'+escapeHtml(loc.name)+'</div>'+
         (loc.course ? '<div class="popup-meta">'+escapeHtml(loc.course)+'</div>' : '')+
         '<div class="popup-addr">'+escapeHtml(loc.address||'')+'</div>'+
+        '<div class="popup-hint">長押ししてドラッグすると位置を修正できます</div>'+
         '<div class="popup-actions">'+
           '<button class="popup-btn edit" data-act="edit" data-id="'+loc.id+'">編集</button>'+
           '<button class="popup-btn '+(done?'mark-go':'mark-done')+'" data-act="toggle" data-id="'+loc.id+'">'+
@@ -480,6 +528,15 @@
           '</button>'+
         '</div>';
       marker.bindPopup(popupHtml);
+      marker.on('dragend', async () => {
+        const ll = marker.getLatLng();
+        loc.lat = ll.lat; loc.lng = ll.lng;
+        showToast('位置を更新しました。住所を確認中…');
+        renderAll();
+        const addr = await reverseGeocode(ll.lat, ll.lng);
+        if(addr){ loc.address = addr; renderAll(); }
+        await upsertLocationRow(loc);
+      });
       marker.on('popupopen', () => {
         document.querySelectorAll('.leaflet-popup-content .popup-btn').forEach(btn => {
           btn.onclick = () => {
@@ -527,7 +584,56 @@
     renderHeader();
     if(currentTab === 'map') renderMarkers();
     renderList();
+    renderHome();
   }
+
+  function renderHome(){
+    const d = new Date();
+    document.getElementById('homeDateLine').textContent = (d.getMonth()+1)+'月'+d.getDate()+'日 ('+WEEKDAYS_JA[todayWd()]+')';
+    const todays = allTodays();
+    const wrap = document.getElementById('courseCards');
+
+    if(locations.length === 0){
+      wrap.innerHTML = '<div class="home-empty">まだ回収先が登録されていません。<br>「すべて表示」から地図を開いて、右下の「＋」または長押しで登録を始めてください。</div>'+
+        '<div class="course-card all-card" data-course="all"><div><div class="cc-name">すべて表示</div><div class="cc-sub">コース未設定でまず始める</div></div><div class="cc-count">→</div></div>';
+    } else {
+      const courses = courseList();
+      let html = '<div class="course-card all-card" data-course="all"><div><div class="cc-name">すべて表示</div><div class="cc-sub">全コース合算</div></div>'+
+        '<div class="cc-count">'+(todays.length - todays.filter(l=>collectedMap[l.id]).length)+'<small>残り / '+todays.length+'件</small></div></div>';
+      html += courses.map(c => {
+        const list = todays.filter(l => (l.course || '未設定') === c);
+        const done = list.filter(l => collectedMap[l.id]).length;
+        const remain = list.length - done;
+        return '<div class="course-card" data-course="'+escapeHtml(c)+'"><div><div class="cc-name">'+escapeHtml(c)+'</div>'+
+          '<div class="cc-sub">本日 '+list.length+'件</div></div>'+
+          '<div class="cc-count">'+remain+'<small>残り / '+list.length+'件</small></div></div>';
+      }).join('');
+      wrap.innerHTML = html;
+    }
+
+    wrap.querySelectorAll('.course-card').forEach(card => {
+      card.onclick = () => {
+        currentCourse = card.dataset.course;
+        appView = 'work';
+        showView();
+        renderAll();
+      };
+    });
+  }
+
+  function showView(){
+    document.getElementById('home-view').style.display = appView === 'home' ? 'flex' : 'none';
+    document.getElementById('work-container').style.display = appView === 'work' ? 'flex' : 'none';
+    if(appView === 'work' && currentTab === 'map' && map){
+      setTimeout(() => map.invalidateSize(), 50);
+    }
+  }
+
+  document.getElementById('backHome').onclick = () => {
+    appView = 'home';
+    showView();
+    renderHome();
+  };
 
   function escapeHtml(s){
     return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -584,7 +690,7 @@
     const loc = {
       id: 'loc_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
       name: '名称未設定',
-      address: '',
+      address: '住所を取得中…',
       course: currentCourse !== 'all' ? currentCourse : '',
       lat: latlng.lat, lng: latlng.lng,
       schedule: 'daily'
@@ -592,14 +698,21 @@
     locations.push(loc);
     renderAll();
     showToast('ピンを置いた。あとでリストから名前を編集してね');
+
+    const addr = await reverseGeocode(latlng.lat, latlng.lng);
+    loc.address = addr || '';
+    renderAll();
     await upsertLocationRow(loc);
   }
 
   function wireMapPinDrop(){
-    // PC: 右クリックで直接ピン
-    map.on('contextmenu', (e) => { dropPinAt(e.latlng); });
+    // PC: 右クリックで直接ピン（既存ピンの上での右クリックは除外）
+    map.on('contextmenu', (e) => {
+      if(e.originalEvent && e.originalEvent.target && e.originalEvent.target.closest && e.originalEvent.target.closest('.pin')) return;
+      dropPinAt(e.latlng);
+    });
 
-    // モバイル: 長押しでピン（地図のdragging状態には一切触らない — 触ると通常のパン操作が壊れるため）
+    // モバイル: 長押しでピン（既存ピンの上はLeafletのドラッグに任せるため対象外にする）
     let pressTimer = null;
     let startPoint = null;
     let longPressFired = false;
@@ -608,6 +721,7 @@
 
     map.getContainer().addEventListener('touchstart', (e) => {
       if(e.touches.length !== 1) return;
+      if(e.target && e.target.closest && e.target.closest('.pin')) return;
       const t = e.touches[0];
       startPoint = {x:t.clientX, y:t.clientY};
       longPressFired = false;
@@ -725,6 +839,19 @@
     });
   }
 
+  let pendingGeo = null;
+
+  function updateGeoStatus(){
+    const el = document.getElementById('geoStatus');
+    if(pendingGeo){
+      el.className = 'geo-status set';
+      el.textContent = '📍 位置は確定済みです（保存できます）';
+    } else {
+      el.className = 'geo-status unset';
+      el.textContent = '⚠️ まだ位置が確定していません。「位置を検索」で場所を選んでください。';
+    }
+  }
+
   function openSheet(id){
     editingId = id;
     const statusEl = document.getElementById('addStatus');
@@ -740,17 +867,20 @@
       document.getElementById('inAddr').value = loc.address || '';
       document.getElementById('inCourse').value = loc.course || '';
       selectedDays = new Set(loc.schedule === 'daily' ? ['daily'] : (loc.schedule || []));
+      pendingGeo = {lat: loc.lat, lng: loc.lng};
     } else {
       document.getElementById('sheetTitle').textContent = '回収先を追加';
       document.getElementById('inName').value = '';
       document.getElementById('inAddr').value = '';
       document.getElementById('inCourse').value = '';
       selectedDays = new Set();
+      pendingGeo = null;
     }
+    updateGeoStatus();
     document.querySelectorAll('.day-chip').forEach(c => c.classList.toggle('on', selectedDays.has(c.dataset.day)));
     overlay.classList.add('show');
   }
-  function closeSheet(){ overlay.classList.remove('show'); editingId = null; }
+  function closeSheet(){ overlay.classList.remove('show'); editingId = null; pendingGeo = null; }
 
   document.querySelectorAll('.day-chip').forEach(chip => {
     chip.onclick = () => {
@@ -767,11 +897,27 @@
     };
   });
 
-  // 天文館周辺を優先しつつ、部分一致でも候補を複数拾う
-  const TENMONKAN_VIEWBOX = '130.545,31.615,130.575,31.585'; // left,top,right,bottom
+  // 現在地があればその周辺、なければ天文館周辺に検索範囲を絞る(bounded=1で全国からのヒットを防ぐ)
+  const TENMONKAN_CENTER = {lat: 31.5966, lng: 130.5571};
+  function localViewbox(){
+    const c = currentPos || TENMONKAN_CENTER;
+    const d = 0.045; // 中心から南北東西それぞれ約5km四方
+    const left = c.lng - d, right = c.lng + d, top = c.lat + d, bottom = c.lat - d;
+    return left + ',' + top + ',' + right + ',' + bottom;
+  }
+  async function reverseGeocode(lat, lng){
+    try{
+      const url = 'https://nominatim.openstreetmap.org/reverse?format=json&lat='+lat+'&lon='+lng+'&zoom=18';
+      const res = await fetch(url);
+      if(!res.ok) return '';
+      const data = await res.json();
+      return (data && data.display_name) ? data.display_name : '';
+    }catch(e){ return ''; }
+  }
+
   async function geocodeCandidates(q){
     const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=jp'
-      + '&viewbox=' + TENMONKAN_VIEWBOX + '&addressdetails=1&q=' + encodeURIComponent(q);
+      + '&viewbox=' + localViewbox() + '&bounded=1&addressdetails=1&q=' + encodeURIComponent(q);
     const res = await fetch(url);
     if(!res.ok) throw new Error('geocode failed');
     const data = await res.json();
@@ -820,33 +966,102 @@
     await upsertLocationRow(loc);
   }
 
-  function renderCandidates(list, statusEl){
-    const wrap = document.getElementById('candidateList');
-    if(list.length === 0){
-      wrap.innerHTML = '';
-      statusEl.textContent = '候補が見つかりませんでした。住所を入力して再検索するか、地図を長押し／右クリックしてピンを直接置いてください。';
-      statusEl.className = 'status-msg err';
-      return;
-    }
-    statusEl.textContent = '近い候補を'+list.length+'件見つけました。該当する場所をタップしてください。';
-    statusEl.className = 'status-msg';
-    wrap.innerHTML = list.map((c, i) =>
-      '<div class="candidate-item" data-i="'+i+'">'+escapeHtml(c.label.split('、')[0] || c.label)+
-      '<small>'+escapeHtml(c.label)+'</small></div>'
-    ).join('');
-    wrap.querySelectorAll('.candidate-item').forEach(node => {
-      node.onclick = () => {
-        const c = list[parseInt(node.dataset.i, 10)];
-        commitSave({lat:c.lat, lng:c.lng});
-      };
-    });
+  async function geocodeSingleUnbounded(q){
+    try{
+      const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jp&q=' + encodeURIComponent(q);
+      const res = await fetch(url);
+      if(!res.ok) return null;
+      const data = await res.json();
+      if(!data.length) return null;
+      return {lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon)};
+    }catch(e){ return null; }
   }
 
-  document.getElementById('btnSave').onclick = async () => {
+  function renderCandidates(list, statusEl){
+    const wrap = document.getElementById('candidateList');
+    let html = '';
+    if(list.length === 0){
+      statusEl.textContent = '近くの候補は見つかりませんでした。下のボタンで手入力の住所のまま位置を確定できます。';
+      statusEl.className = 'status-msg err';
+    } else {
+      statusEl.textContent = '近い候補を'+list.length+'件見つけました。該当する場所をタップして位置を確定してください。';
+      statusEl.className = 'status-msg';
+      html += list.map((c, i) =>
+        '<div class="candidate-item" data-i="'+i+'">'+escapeHtml(c.label.split('、')[0] || c.label)+
+        '<small>'+escapeHtml(c.label)+'</small></div>'
+      ).join('');
+    }
+    html += '<div class="candidate-item" id="manualFallback" style="border-color:var(--amber); color:var(--amber); text-align:center; font-weight:800;">候補になくても、この内容で位置を確定する</div>';
+    wrap.innerHTML = html;
+
+    wrap.querySelectorAll('.candidate-item[data-i]').forEach(node => {
+      node.onclick = () => {
+        const c = list[parseInt(node.dataset.i, 10)];
+        pendingGeo = {lat:c.lat, lng:c.lng};
+        updateGeoStatus();
+        clearCandidates();
+        statusEl.textContent = '位置を確定しました。内容を確認して「保存する」を押してください。';
+        statusEl.className = 'status-msg ok';
+      };
+    });
+
+    document.getElementById('manualFallback').onclick = async () => {
+      const fb = document.getElementById('manualFallback');
+      fb.textContent = '位置を確認中…';
+      const addrInput = document.getElementById('inAddr').value.trim();
+      const name = document.getElementById('inName').value.trim();
+      const query = addrInput || name;
+      let geo = await geocodeSingleUnbounded(query);
+      if(!geo){
+        const c = map ? map.getCenter() : TENMONKAN_CENTER;
+        geo = {lat: c.lat, lng: c.lng};
+        pendingGeo = geo;
+        updateGeoStatus();
+        clearCandidates();
+        statusEl.textContent = '正確な位置が特定できなかったため、地図の中心付近で仮確定しました。保存後、地図でピンをドラッグして正しい位置に直してください。';
+        statusEl.className = 'status-msg err';
+      } else {
+        pendingGeo = geo;
+        updateGeoStatus();
+        clearCandidates();
+        statusEl.textContent = '位置を確定しました。内容を確認して「保存する」を押してください。';
+        statusEl.className = 'status-msg ok';
+      }
+    };
+  }
+
+  document.getElementById('btnSearchPos').onclick = async () => {
     const name = document.getElementById('inName').value.trim();
     const addrInput = document.getElementById('inAddr').value.trim();
     const statusEl = document.getElementById('addStatus');
     clearCandidates();
+
+    const query = addrInput || name;
+    if(!query){
+      statusEl.textContent = '店舗名か住所のどちらかを入力してから検索してください。';
+      statusEl.className = 'status-msg err';
+      return;
+    }
+
+    const btn = document.getElementById('btnSearchPos');
+    btn.disabled = true;
+    statusEl.textContent = '候補を検索中…';
+    statusEl.className = 'status-msg';
+
+    try{
+      const candidates = await geocodeCandidates(query);
+      renderCandidates(candidates, statusEl);
+    }catch(e){
+      statusEl.textContent = '通信エラーが発生しました。もう一度お試しください。';
+      statusEl.className = 'status-msg err';
+    }finally{
+      btn.disabled = false;
+    }
+  };
+
+  document.getElementById('btnSave').onclick = async () => {
+    const name = document.getElementById('inName').value.trim();
+    const statusEl = document.getElementById('addStatus');
 
     if(!name){
       statusEl.textContent = '店舗名を入力してください。';
@@ -858,29 +1073,13 @@
       statusEl.className = 'status-msg err';
       return;
     }
-
-    // 編集で住所を明示入力していない場合は座標を変更せずそのまま保存（地図上のピンの位置は保持）
-    if(editingId && !addrInput){
-      const existing = locations.find(l => l.id === editingId);
-      await commitSave({lat: existing.lat, lng: existing.lng});
+    if(!pendingGeo){
+      statusEl.textContent = '先に「🔍 位置を検索」で場所を確定してから保存してください。';
+      statusEl.className = 'status-msg err';
       return;
     }
 
-    const btn = document.getElementById('btnSave');
-    btn.disabled = true;
-    statusEl.textContent = '候補を検索中…';
-    statusEl.className = 'status-msg';
-
-    try{
-      const query = addrInput ? (addrInput + ' 鹿児島') : (name + ' 天文館');
-      const candidates = await geocodeCandidates(query);
-      renderCandidates(candidates, statusEl);
-    }catch(e){
-      statusEl.textContent = '通信エラーが発生しました。もう一度お試しください。';
-      statusEl.className = 'status-msg err';
-    }finally{
-      btn.disabled = false;
-    }
+    await commitSave(pendingGeo);
   };
 
   document.getElementById('styleToggle').onclick = () => {
@@ -915,6 +1114,7 @@
     applyMapStyle();
 
     document.getElementById('list-view').style.display = 'none';
+    showView();
 
     await loadLocations();
     await loadCollected();
