@@ -915,9 +915,9 @@
     }catch(e){ return ''; }
   }
 
-  async function geocodeCandidates(q){
+  async function geocodeRaw(q, strict){
     const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=jp'
-      + '&viewbox=' + localViewbox() + '&bounded=1&addressdetails=1&q=' + encodeURIComponent(q);
+      + '&viewbox=' + localViewbox() + (strict ? '&bounded=1' : '') + '&addressdetails=1&q=' + encodeURIComponent(q);
     const res = await fetch(url);
     if(!res.ok) throw new Error('geocode failed');
     const data = await res.json();
@@ -925,6 +925,16 @@
       lat: parseFloat(d.lat), lng: parseFloat(d.lon),
       label: d.display_name
     }));
+  }
+
+  async function geocodeCandidates(q){
+    // まずエリア内に厳密に絞って検索
+    let list = await geocodeRaw(q, true);
+    if(list.length === 0){
+      // 見つからなければ、エリアを「優先」扱いに緩めて再検索（近さ優先・遠方でも見つかる）
+      list = await geocodeRaw(q, false);
+    }
+    return list;
   }
 
   document.getElementById('btnDelete').onclick = async () => {
@@ -966,22 +976,11 @@
     await upsertLocationRow(loc);
   }
 
-  async function geocodeSingleUnbounded(q){
-    try{
-      const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jp&q=' + encodeURIComponent(q);
-      const res = await fetch(url);
-      if(!res.ok) return null;
-      const data = await res.json();
-      if(!data.length) return null;
-      return {lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon)};
-    }catch(e){ return null; }
-  }
-
   function renderCandidates(list, statusEl){
     const wrap = document.getElementById('candidateList');
     let html = '';
     if(list.length === 0){
-      statusEl.textContent = '近くの候補は見つかりませんでした。下のボタンで手入力の住所のまま位置を確定できます。';
+      statusEl.textContent = '近くの候補は見つかりませんでした。下のボタンで、今いるエリア付近に仮の位置を置けます。';
       statusEl.className = 'status-msg err';
     } else {
       statusEl.textContent = '近い候補を'+list.length+'件見つけました。該当する場所をタップして位置を確定してください。';
@@ -991,7 +990,7 @@
         '<small>'+escapeHtml(c.label)+'</small></div>'
       ).join('');
     }
-    html += '<div class="candidate-item" id="manualFallback" style="border-color:var(--amber); color:var(--amber); text-align:center; font-weight:800;">候補になくても、この内容で位置を確定する</div>';
+    html += '<div class="candidate-item" id="manualFallback" style="border-color:var(--amber); color:var(--amber); text-align:center; font-weight:800;">候補になくても、今のエリア付近で位置を確定する</div>';
     wrap.innerHTML = html;
 
     wrap.querySelectorAll('.candidate-item[data-i]').forEach(node => {
@@ -1005,28 +1004,14 @@
       };
     });
 
-    document.getElementById('manualFallback').onclick = async () => {
-      const fb = document.getElementById('manualFallback');
-      fb.textContent = '位置を確認中…';
-      const addrInput = document.getElementById('inAddr').value.trim();
-      const name = document.getElementById('inName').value.trim();
-      const query = addrInput || name;
-      let geo = await geocodeSingleUnbounded(query);
-      if(!geo){
-        const c = map ? map.getCenter() : TENMONKAN_CENTER;
-        geo = {lat: c.lat, lng: c.lng};
-        pendingGeo = geo;
-        updateGeoStatus();
-        clearCandidates();
-        statusEl.textContent = '正確な位置が特定できなかったため、地図の中心付近で仮確定しました。保存後、地図でピンをドラッグして正しい位置に直してください。';
-        statusEl.className = 'status-msg err';
-      } else {
-        pendingGeo = geo;
-        updateGeoStatus();
-        clearCandidates();
-        statusEl.textContent = '位置を確定しました。内容を確認して「保存する」を押してください。';
-        statusEl.className = 'status-msg ok';
-      }
+    document.getElementById('manualFallback').onclick = () => {
+      // 全国検索はしない：現在地／地図の中心／天文館 のいずれか（必ず今のエリア内）に仮置きする
+      const c = currentPos || (map ? map.getCenter() : TENMONKAN_CENTER);
+      pendingGeo = {lat: c.lat, lng: c.lng};
+      updateGeoStatus();
+      clearCandidates();
+      statusEl.textContent = '今のエリア付近に仮の位置を置きました。保存後、地図でピンをドラッグして正確な場所に合わせてください。';
+      statusEl.className = 'status-msg err';
     };
   }
 
