@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <style>
   :root{
     --ink:#0f1512;
@@ -213,7 +214,7 @@
   .user-dot{width:14px; height:14px; border-radius:50%; background:#3b82f6; border:2px solid #fff; box-shadow:0 0 0 3px rgba(59,130,246,.35);}
   .user-dot-pulse{position:absolute; width:14px; height:14px; border-radius:50%; background:rgba(59,130,246,.5); animation:pulse-dot 1.8s ease-out infinite;}
   @keyframes pulse-dot{0%{transform:scale(1); opacity:.7;} 100%{transform:scale(2.8); opacity:0;}}
-  .sort-row{display:flex; align-items:center; gap:8px; margin-top:9px;}
+  .sort-row{display:flex; align-items:center; gap:8px; margin-top:9px; flex-wrap:wrap;}
   .sort-toggle{
     padding:6px 13px; border-radius:20px; background:var(--panel-2); border:1px solid var(--line);
     font-size:12.5px; font-weight:700; color:var(--muted); cursor:pointer;
@@ -238,7 +239,7 @@
     font-size:12.5px; font-weight:700; padding:8px 12px; border-radius:9px; margin-bottom:10px; display:none;
   }
   .geo-status.set{display:block; background:#12301e; color:#7fe0a8; border:1px solid #1f5a38;}
-  .geo-status.unset{display:block; background:#2e1414; color:#e6a3a3; border:1px solid #5a2323;}
+  .geo-status.unset{display:block; background:var(--panel-2); color:var(--muted); border:1px solid var(--line);}
 </style>
 </head>
 <body>
@@ -272,7 +273,11 @@
         <div class="tab" data-tab="list">リスト</div>
       </div>
       <div class="course-row" id="courseRow"></div>
-      <div class="sort-row"><div class="sort-toggle" id="sortToggle">📍 近い順に並べる</div></div>
+      <div class="sort-row">
+        <div class="sort-toggle" id="sortToggle">📍 近い順に並べる</div>
+        <div class="sort-toggle" id="csvImportBtn">📥 CSVで一括登録</div>
+        <input type="file" id="csvFileInput" accept=".csv" style="display:none;">
+      </div>
     </header>
 
     <div id="map-view">
@@ -304,12 +309,11 @@
       <input id="inName" type="text" placeholder="例）居酒屋 やまと 天文館店">
     </div>
     <div class="field">
-      <label>住所（店舗名で見つからない場合のみ入力）</label>
-      <input id="inAddr" type="text" placeholder="例）鹿児島県鹿児島市千日町5-8">
+      <label>住所 または Googleマップの座標</label>
+      <input id="inAddr" type="text" placeholder="例）31.5966, 130.5571（空欄でもOK）">
     </div>
-    <button class="btn ghost" id="btnSearchPos" style="margin-bottom:10px; width:100%;">🔍 位置を検索</button>
-    <div class="hint">店舗名または住所で近くの候補を探します。合っているものをタップして位置を確定してください。位置を決めたら最後に下の「保存する」を押します。</div>
-    <div class="geo-status" id="geoStatus"></div>
+    <button class="btn ghost" id="btnSearchPos" style="margin-bottom:10px; width:100%;">🔍 位置を検索してみる（コンビニ等は当たりやすい）</button>
+    <div class="hint">検索は任意です。当たらなくても保存できます（未検索なら仮ピン、保存後は地図でドラッグ調整）。座標を貼るとそれが最優先で使われます。</div>
     <div class="candidate-list" id="candidateList"></div>
     <div class="field">
       <label>コース</label>
@@ -391,6 +395,18 @@
       if(error) throw error;
     }catch(e){
       showFatalBanner('保存に失敗しました: ' + (e.message || e));
+    }
+  }
+
+  async function upsertLocationRows(rows){
+    try{
+      const { error } = await sb.from('gomi_locations').upsert(rows.map(loc => ({
+        id: loc.id, name: loc.name, address: loc.address, course: loc.course,
+        lat: loc.lat, lng: loc.lng, schedule: loc.schedule
+      })));
+      if(error) throw error;
+    }catch(e){
+      showFatalBanner('一括保存に失敗しました: ' + (e.message || e));
     }
   }
 
@@ -839,21 +855,11 @@
     });
   }
 
-  let pendingGeo = null;
-
-  function updateGeoStatus(){
-    const el = document.getElementById('geoStatus');
-    if(pendingGeo){
-      el.className = 'geo-status set';
-      el.textContent = '📍 位置は確定済みです（保存できます）';
-    } else {
-      el.className = 'geo-status unset';
-      el.textContent = '⚠️ まだ位置が確定していません。「位置を検索」で場所を選んでください。';
-    }
-  }
+  let searchedGeo = null;
 
   function openSheet(id){
     editingId = id;
+    searchedGeo = null;
     const statusEl = document.getElementById('addStatus');
     statusEl.textContent = ''; statusEl.className = 'status-msg';
     document.getElementById('candidateList').innerHTML = '';
@@ -867,20 +873,17 @@
       document.getElementById('inAddr').value = loc.address || '';
       document.getElementById('inCourse').value = loc.course || '';
       selectedDays = new Set(loc.schedule === 'daily' ? ['daily'] : (loc.schedule || []));
-      pendingGeo = {lat: loc.lat, lng: loc.lng};
     } else {
       document.getElementById('sheetTitle').textContent = '回収先を追加';
       document.getElementById('inName').value = '';
       document.getElementById('inAddr').value = '';
       document.getElementById('inCourse').value = '';
       selectedDays = new Set();
-      pendingGeo = null;
     }
-    updateGeoStatus();
     document.querySelectorAll('.day-chip').forEach(c => c.classList.toggle('on', selectedDays.has(c.dataset.day)));
     overlay.classList.add('show');
   }
-  function closeSheet(){ overlay.classList.remove('show'); editingId = null; pendingGeo = null; }
+  function closeSheet(){ overlay.classList.remove('show'); editingId = null; searchedGeo = null; }
 
   document.querySelectorAll('.day-chip').forEach(chip => {
     chip.onclick = () => {
@@ -897,14 +900,8 @@
     };
   });
 
-  // 現在地があればその周辺、なければ天文館周辺に検索範囲を絞る(bounded=1で全国からのヒットを防ぐ)
   const TENMONKAN_CENTER = {lat: 31.5966, lng: 130.5571};
-  function localViewbox(){
-    const c = currentPos || TENMONKAN_CENTER;
-    const d = 0.045; // 中心から南北東西それぞれ約5km四方
-    const left = c.lng - d, right = c.lng + d, top = c.lat + d, bottom = c.lat - d;
-    return left + ',' + top + ',' + right + ',' + bottom;
-  }
+
   async function reverseGeocode(lat, lng){
     try{
       const url = 'https://nominatim.openstreetmap.org/reverse?format=json&lat='+lat+'&lon='+lng+'&zoom=18';
@@ -913,28 +910,6 @@
       const data = await res.json();
       return (data && data.display_name) ? data.display_name : '';
     }catch(e){ return ''; }
-  }
-
-  async function geocodeRaw(q, strict){
-    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=jp'
-      + '&viewbox=' + localViewbox() + (strict ? '&bounded=1' : '') + '&addressdetails=1&q=' + encodeURIComponent(q);
-    const res = await fetch(url);
-    if(!res.ok) throw new Error('geocode failed');
-    const data = await res.json();
-    return data.map(d => ({
-      lat: parseFloat(d.lat), lng: parseFloat(d.lon),
-      label: d.display_name
-    }));
-  }
-
-  async function geocodeCandidates(q){
-    // まずエリア内に厳密に絞って検索
-    let list = await geocodeRaw(q, true);
-    if(list.length === 0){
-      // 見つからなければ、エリアを「優先」扱いに緩めて再検索（近さ優先・遠方でも見つかる）
-      list = await geocodeRaw(q, false);
-    }
-    return list;
   }
 
   document.getElementById('btnDelete').onclick = async () => {
@@ -947,10 +922,6 @@
     renderAll();
     await deleteLocationRow(idToDelete);
   };
-
-  function clearCandidates(){
-    document.getElementById('candidateList').innerHTML = '';
-  }
 
   async function commitSave(geo){
     const name = document.getElementById('inName').value.trim();
@@ -971,73 +942,86 @@
       locations.push(loc);
     }
     renderAll();
-    showToast('保存しました');
     closeSheet();
     await upsertLocationRow(loc);
   }
 
+  function tryParseLatLng(text){
+    if(!text) return null;
+    // "31.5966, 130.5571" のような直接ペースト
+    let m = text.match(/(-?\d{1,3}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/);
+    // Googleマップ共有URLの "@lat,lng,zoom" 形式
+    if(!m) m = text.match(/@(-?\d{1,3}\.\d{3,}),(-?\d{1,3}\.\d{3,})/);
+    // "q=lat,lng" や "ll=lat,lng" 形式
+    if(!m) m = text.match(/[?&](?:q|ll)=(-?\d{1,3}\.\d{3,}),(-?\d{1,3}\.\d{3,})/);
+    if(!m) return null;
+    const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+    if(isNaN(lat) || isNaN(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+    return {lat, lng};
+  }
+
+  async function geocodeCandidates(q){
+    const c = currentPos || TENMONKAN_CENTER;
+    const d = 0.045;
+    const viewbox = (c.lng-d)+','+(c.lat+d)+','+(c.lng+d)+','+(c.lat-d);
+    async function run(strict){
+      const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=6&countrycodes=jp&viewbox='+viewbox
+        + (strict ? '&bounded=1' : '') + '&addressdetails=1&q=' + encodeURIComponent(q);
+      const res = await fetch(url);
+      if(!res.ok) throw new Error('geocode failed');
+      const data = await res.json();
+      return data.map(d => ({lat: parseFloat(d.lat), lng: parseFloat(d.lon), label: d.display_name}));
+    }
+    let list = await run(true);
+    if(list.length === 0) list = await run(false);
+    return list;
+  }
+
   function renderCandidates(list, statusEl){
     const wrap = document.getElementById('candidateList');
-    let html = '';
     if(list.length === 0){
-      statusEl.textContent = '近くの候補は見つかりませんでした。下のボタンで、今いるエリア付近に仮の位置を置けます。';
+      statusEl.textContent = 'この店は候補が見つかりませんでした。未検索のまま保存し、あとで地図でドラッグして位置を合わせてください。';
       statusEl.className = 'status-msg err';
-    } else {
-      statusEl.textContent = '近い候補を'+list.length+'件見つけました。該当する場所をタップして位置を確定してください。';
-      statusEl.className = 'status-msg';
-      html += list.map((c, i) =>
-        '<div class="candidate-item" data-i="'+i+'">'+escapeHtml(c.label.split('、')[0] || c.label)+
-        '<small>'+escapeHtml(c.label)+'</small></div>'
-      ).join('');
+      wrap.innerHTML = '';
+      return;
     }
-    html += '<div class="candidate-item" id="manualFallback" style="border-color:var(--amber); color:var(--amber); text-align:center; font-weight:800;">候補になくても、今のエリア付近で位置を確定する</div>';
-    wrap.innerHTML = html;
-
-    wrap.querySelectorAll('.candidate-item[data-i]').forEach(node => {
+    statusEl.textContent = '近い候補を'+list.length+'件見つけました。合っているものをタップしてください。';
+    statusEl.className = 'status-msg';
+    wrap.innerHTML = list.map((c, i) =>
+      '<div class="candidate-item" data-i="'+i+'">'+escapeHtml(c.label.split('、')[0] || c.label)+
+      '<small>'+escapeHtml(c.label)+'</small></div>'
+    ).join('');
+    wrap.querySelectorAll('.candidate-item').forEach(node => {
       node.onclick = () => {
         const c = list[parseInt(node.dataset.i, 10)];
-        pendingGeo = {lat:c.lat, lng:c.lng};
-        updateGeoStatus();
-        clearCandidates();
-        statusEl.textContent = '位置を確定しました。内容を確認して「保存する」を押してください。';
+        searchedGeo = {lat: c.lat, lng: c.lng};
+        document.getElementById('inAddr').value = c.label;
+        wrap.innerHTML = '';
+        statusEl.textContent = 'この場所で確定しました。「保存する」を押してください。';
         statusEl.className = 'status-msg ok';
       };
     });
-
-    document.getElementById('manualFallback').onclick = () => {
-      // 全国検索はしない：現在地／地図の中心／天文館 のいずれか（必ず今のエリア内）に仮置きする
-      const c = currentPos || (map ? map.getCenter() : TENMONKAN_CENTER);
-      pendingGeo = {lat: c.lat, lng: c.lng};
-      updateGeoStatus();
-      clearCandidates();
-      statusEl.textContent = '今のエリア付近に仮の位置を置きました。保存後、地図でピンをドラッグして正確な場所に合わせてください。';
-      statusEl.className = 'status-msg err';
-    };
   }
 
   document.getElementById('btnSearchPos').onclick = async () => {
     const name = document.getElementById('inName').value.trim();
     const addrInput = document.getElementById('inAddr').value.trim();
     const statusEl = document.getElementById('addStatus');
-    clearCandidates();
-
+    const btn = document.getElementById('btnSearchPos');
     const query = addrInput || name;
     if(!query){
-      statusEl.textContent = '店舗名か住所のどちらかを入力してから検索してください。';
+      statusEl.textContent = '店舗名か住所を入力してから検索してください。';
       statusEl.className = 'status-msg err';
       return;
     }
-
-    const btn = document.getElementById('btnSearchPos');
     btn.disabled = true;
-    statusEl.textContent = '候補を検索中…';
+    statusEl.textContent = '検索中…';
     statusEl.className = 'status-msg';
-
     try{
-      const candidates = await geocodeCandidates(query);
-      renderCandidates(candidates, statusEl);
+      const list = await geocodeCandidates(query);
+      renderCandidates(list, statusEl);
     }catch(e){
-      statusEl.textContent = '通信エラーが発生しました。もう一度お試しください。';
+      statusEl.textContent = '通信エラーが発生しました。';
       statusEl.className = 'status-msg err';
     }finally{
       btn.disabled = false;
@@ -1046,6 +1030,7 @@
 
   document.getElementById('btnSave').onclick = async () => {
     const name = document.getElementById('inName').value.trim();
+    const addrInput = document.getElementById('inAddr').value.trim();
     const statusEl = document.getElementById('addStatus');
 
     if(!name){
@@ -1058,14 +1043,122 @@
       statusEl.className = 'status-msg err';
       return;
     }
-    if(!pendingGeo){
-      statusEl.textContent = '先に「🔍 位置を検索」で場所を確定してから保存してください。';
-      statusEl.className = 'status-msg err';
-      return;
+
+    // 優先順位: ①座標の直接貼り付け ②検索で選んだ候補 ③(編集時)既存位置を維持 ④新規はエリア付近に仮置き
+    const parsed = tryParseLatLng(addrInput);
+    let geo, autoDefaulted = false;
+
+    if(parsed){
+      geo = parsed;
+    } else if(searchedGeo){
+      geo = searchedGeo;
+    } else if(editingId){
+      // 住所を打ち替えていない場合は既存の位置を維持（ドラッグで置いた位置を勝手に動かさない）
+      const existing = locations.find(l => l.id === editingId);
+      geo = {lat: existing.lat, lng: existing.lng};
+    } else {
+      // 新規かつ座標未指定 → 今のエリア付近に仮ピン
+      const c = currentPos || (map ? map.getCenter() : TENMONKAN_CENTER);
+      geo = {lat: c.lat, lng: c.lng};
+      autoDefaulted = true;
     }
 
-    await commitSave(pendingGeo);
+    if(parsed){
+      const addr = await reverseGeocode(geo.lat, geo.lng);
+      if(addr) document.getElementById('inAddr').value = addr;
+    }
+
+    await commitSave(geo);
+    showToast(autoDefaulted ? '保存しました。地図でピンをドラッグして正確な位置に合わせてください' : '保存しました');
   };
+
+  // ---- CSV一括インポート ----
+  function parseScheduleField(raw){
+    if(!raw || raw.trim() === '' || raw.trim() === '毎日') return 'daily';
+    const map = {'月':'mon','火':'tue','水':'wed','木':'thu','金':'fri','土':'sat','日':'sun'};
+    const parts = raw.split(/[\/、,]/).map(s => s.trim()).filter(Boolean);
+    const days = parts.map(p => map[p]).filter(Boolean);
+    return days.length ? days : 'daily';
+  }
+
+  async function geocodeAddressForImport(q){
+    if(!q) return null;
+    try{
+      const c = currentPos || TENMONKAN_CENTER;
+      const d = 0.045;
+      const viewbox = (c.lng-d)+','+(c.lat+d)+','+(c.lng+d)+','+(c.lat-d);
+      let url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jp&viewbox='+viewbox+'&bounded=1&q='+encodeURIComponent(q);
+      let res = await fetch(url);
+      let data = res.ok ? await res.json() : [];
+      if(!data.length){
+        url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=jp&viewbox='+viewbox+'&q='+encodeURIComponent(q);
+        res = await fetch(url);
+        data = res.ok ? await res.json() : [];
+      }
+      if(!data.length) return null;
+      return {lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon)};
+    }catch(e){ return null; }
+  }
+
+  document.getElementById('csvImportBtn').onclick = () => {
+    document.getElementById('csvFileInput').click();
+  };
+
+  document.getElementById('csvFileInput').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    Papa.parse(file, {
+      encoding: 'UTF-8',
+      skipEmptyLines: true,
+      complete: async (results) => {
+        let rows = results.data;
+        if(rows.length && /^(店舗名|名前|name)$/i.test((rows[0][0]||'').trim())){
+          rows = rows.slice(1);
+        }
+        rows = rows.filter(r => r[0] && r[0].trim());
+        if(rows.length === 0){
+          showToast('読み込める行がありませんでした');
+          e.target.value = '';
+          return;
+        }
+
+        const newLocs = [];
+        for(let i = 0; i < rows.length; i++){
+          const r = rows[i];
+          const name = (r[0] || '').trim();
+          const address = (r[1] || '').trim();
+          const course = (r[2] || '').trim();
+          const schedule = parseScheduleField(r[3] || '');
+          showToast('取り込み中… ('+(i+1)+'/'+rows.length+') '+name);
+
+          let geo = null;
+          if(address){
+            geo = await geocodeAddressForImport(address);
+            await new Promise(r => setTimeout(r, 1100)); // Nominatimのレート制限(1req/秒)対策
+          }
+          if(!geo){
+            const c = currentPos || (map ? map.getCenter() : TENMONKAN_CENTER);
+            geo = {lat: c.lat, lng: c.lng};
+          }
+
+          newLocs.push({
+            id: 'loc_'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+i,
+            name, address, course, lat: geo.lat, lng: geo.lng, schedule
+          });
+        }
+
+        locations = locations.concat(newLocs);
+        renderAll();
+        showToast(rows.length+'件を取り込みました。位置がズレているピンは地図でドラッグして直してください');
+        await upsertLocationRows(newLocs);
+        e.target.value = '';
+      },
+      error: () => {
+        showToast('CSVの読み込みに失敗しました');
+        e.target.value = '';
+      }
+    });
+  });
 
   document.getElementById('styleToggle').onclick = () => {
     mapStyle = mapStyle === 'color' ? 'gray' : 'color';
