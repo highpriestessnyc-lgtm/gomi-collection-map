@@ -166,6 +166,7 @@
     border-radius:var(--radius); padding:12px; margin-bottom:9px;
   }
   .list-item.done{opacity:.5;}
+  .list-item.selected{border-color:var(--go); background:#241414;}
   .status-dot{width:14px; height:14px; border-radius:50%; flex-shrink:0; border:2px solid rgba(0,0,0,.3); cursor:pointer;}
   .status-dot.go{background:var(--go);} .status-dot.done{background:var(--done);}
   .li-body{flex:1; min-width:0; cursor:pointer;}
@@ -243,6 +244,13 @@
     font-size:12.5px; font-weight:700; color:var(--muted); cursor:pointer;
   }
   .sort-toggle.on{background:#1c3a63; border-color:#3b6fb8; color:#bcd6ff;}
+  .sort-toggle.danger-toggle{background:#2e1414; border-color:#5a2323; color:#e6a3a3;}
+  .select-bar{display:flex; align-items:center; gap:8px; margin-top:9px; flex-wrap:wrap;}
+  .li-check{
+    flex-shrink:0; width:22px; height:22px; border-radius:6px; border:2px solid var(--line); background:var(--panel-2);
+    display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:900; color:transparent;
+  }
+  .li-check.checked{background:var(--go); border-color:var(--go); color:#fff;}
   .li-dist{color:#7fb0ff; font-weight:800;}
   .candidate-list{margin-top:-6px; margin-bottom:12px; display:flex; flex-direction:column; gap:6px;}
   .candidate-item{
@@ -252,7 +260,7 @@
   .candidate-item:active{background:var(--amber); color:#1a1400;}
   .candidate-item small{display:block; color:var(--muted); font-size:11px; margin-top:2px;}
   .candidate-item:active small{color:#4a3a10;}
-  .tab, .course-chip, .quick-chip, .day-chip, .list-item, .status-dot, .li-body, .li-edit, .li-move, .li-call, .cc-edit,
+  .tab, .course-chip, .quick-chip, .day-chip, .list-item, .status-dot, .li-body, .li-edit, .li-move, .li-call, .cc-edit, .li-check,
   .fab, .style-toggle, .locate-btn, .sort-toggle, .btn, .candidate-item, .popup-btn{
     touch-action: manipulation;
   }
@@ -299,7 +307,13 @@
       <div class="sort-row">
         <div class="sort-toggle" id="sortToggle">📍 近い順に並べる</div>
         <div class="sort-toggle" id="csvImportBtn">📥 CSVで一括登録</div>
+        <div class="sort-toggle" id="selectModeBtn">🗑 選択削除</div>
         <input type="file" id="csvFileInput" accept=".csv" style="display:none;">
+      </div>
+      <div class="select-bar" id="selectBar" style="display:none;">
+        <div class="sort-toggle" id="selectAllBtn">全選択</div>
+        <div class="sort-toggle danger-toggle" id="deleteSelectedBtn">選択した0件を削除</div>
+        <div class="sort-toggle" id="cancelSelectBtn">キャンセル</div>
       </div>
     </header>
 
@@ -448,6 +462,16 @@
       if(error) throw error;
     }catch(e){
       showFatalBanner('削除に失敗しました: ' + (e.message || e));
+    }
+  }
+
+  async function deleteLocationRows(ids){
+    try{
+      await sb.from('gomi_collections').delete().in('location_id', ids);
+      const { error } = await sb.from('gomi_locations').delete().in('id', ids);
+      if(error) throw error;
+    }catch(e){
+      showFatalBanner('一括削除に失敗しました: ' + (e.message || e));
     }
   }
 
@@ -661,11 +685,15 @@
     });
   }
 
+  let selectMode = false;
+  let selectedIds = new Set();
+
   function renderList(){
     const el = document.getElementById('list-view');
     const todays = orderedTodays();
     if(todays.length === 0){
       el.innerHTML = '<div class="empty-note">本日回収予定の場所がありません。<br>右下の「＋」から回収先を追加してください。</div>';
+      updateSelectBar();
       return;
     }
     el.innerHTML = todays.map((loc, i) => {
@@ -674,15 +702,20 @@
       if(currentPos){
         tag += ' ・ <span class="li-dist">'+formatDist(distMeters(currentPos, loc))+'</span>';
       }
-      const reorderHtml = sortByDistance ? '' :
+      const reorderHtml = (sortByDistance || selectMode) ? '' :
         '<div class="li-reorder">'+
           '<div class="li-move" data-act="up" '+(i===0?'style="opacity:.25;pointer-events:none;"':'')+'>▲</div>'+
           '<div class="li-move" data-act="down" '+(i===todays.length-1?'style="opacity:.25;pointer-events:none;"':'')+'>▼</div>'+
         '</div>';
-      const callHtml = loc.phone ?
+      const callHtml = (loc.phone && !selectMode) ?
         '<a class="li-call" href="tel:'+escapeHtml(loc.phone)+'" onclick="event.stopPropagation()">📞</a>' : '';
-      return '<div class="list-item '+(done?'done':'')+'" data-id="'+loc.id+'">'+
-        '<div class="status-dot '+(done?'done':'go')+'" data-act="toggle"></div>'+
+      const checked = selectedIds.has(loc.id);
+      const leftHtml = selectMode ?
+        '<div class="li-check '+(checked?'checked':'')+'" data-act="check">✓</div>' :
+        '<div class="status-dot '+(done?'done':'go')+'" data-act="toggle"></div>';
+      const editHtml = selectMode ? '' : '<div class="li-edit" data-act="edit">✎</div>';
+      return '<div class="list-item '+(done?'done':'')+' '+(checked?'selected':'')+'" data-id="'+loc.id+'">'+
+        leftHtml+
         '<div class="li-body" data-act="toggle">'+
           '<div class="li-name">'+escapeHtml(loc.name)+'</div>'+
           '<div class="li-addr">📝 '+escapeHtml(loc.address||'(未入力)')+'</div>'+
@@ -691,19 +724,71 @@
         '</div>'+
         reorderHtml+
         callHtml+
-        '<div class="li-edit" data-act="edit">✎</div>'+
+        editHtml+
       '</div>';
     }).join('');
     el.querySelectorAll('.list-item').forEach(node => {
       const id = node.dataset.id;
-      node.querySelectorAll('[data-act="toggle"]').forEach(n => n.onclick = () => toggleCollected(id));
-      node.querySelector('[data-act="edit"]').onclick = () => openSheet(id);
-      const upBtn = node.querySelector('[data-act="up"]');
-      const downBtn = node.querySelector('[data-act="down"]');
-      if(upBtn) upBtn.onclick = () => moveItem(id, -1);
-      if(downBtn) downBtn.onclick = () => moveItem(id, 1);
+      if(selectMode){
+        node.querySelectorAll('[data-act="toggle"], [data-act="check"]').forEach(n => n.onclick = () => toggleSelected(id));
+      } else {
+        node.querySelectorAll('[data-act="toggle"]').forEach(n => n.onclick = () => toggleCollected(id));
+        const editBtn = node.querySelector('[data-act="edit"]');
+        if(editBtn) editBtn.onclick = () => openSheet(id);
+        const upBtn = node.querySelector('[data-act="up"]');
+        const downBtn = node.querySelector('[data-act="down"]');
+        if(upBtn) upBtn.onclick = () => moveItem(id, -1);
+        if(downBtn) downBtn.onclick = () => moveItem(id, 1);
+      }
     });
+    updateSelectBar();
   }
+
+  function toggleSelected(id){
+    if(selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+    renderList();
+  }
+
+  function updateSelectBar(){
+    const bar = document.getElementById('selectBar');
+    bar.style.display = selectMode ? 'flex' : 'none';
+    document.getElementById('deleteSelectedBtn').textContent = '選択した'+selectedIds.size+'件を削除';
+  }
+
+  document.getElementById('selectModeBtn').onclick = () => {
+    selectMode = !selectMode;
+    selectedIds = new Set();
+    renderList();
+  };
+  document.getElementById('cancelSelectBtn').onclick = () => {
+    selectMode = false;
+    selectedIds = new Set();
+    renderList();
+  };
+  document.getElementById('selectAllBtn').onclick = () => {
+    const todays = orderedTodays();
+    if(selectedIds.size === todays.length){
+      selectedIds = new Set();
+    } else {
+      selectedIds = new Set(todays.map(l => l.id));
+    }
+    renderList();
+  };
+  document.getElementById('deleteSelectedBtn').onclick = async () => {
+    if(selectedIds.size === 0){
+      showToast('削除する項目を選んでください');
+      return;
+    }
+    if(!confirm('選択した'+selectedIds.size+'件を削除します。よろしいですか？')) return;
+    const ids = Array.from(selectedIds);
+    locations = locations.filter(l => !selectedIds.has(l.id));
+    ids.forEach(id => delete collectedMap[id]);
+    selectMode = false;
+    selectedIds = new Set();
+    renderAll();
+    showToast(ids.length+'件を削除しました');
+    await deleteLocationRows(ids);
+  };
 
   async function moveItem(id, direction){
     const list = orderedTodays();
@@ -1265,6 +1350,11 @@
   document.getElementById('csvFileInput').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if(!file) return;
+    const targetLabel = currentCourse !== 'all' ? ('「'+currentCourse+'」') : 'CSVのコース欄の内容';
+    if(!confirm('この内容を'+targetLabel+'として一括登録します。よろしいですか？')){
+      e.target.value = '';
+      return;
+    }
     Papa.parse(file, {
       encoding: 'UTF-8',
       skipEmptyLines: true,
@@ -1285,7 +1375,8 @@
           const r = rows[i];
           const name = (r[0] || '').trim();
           const address = (r[1] || '').trim();
-          const course = (r[2] || '').trim();
+          // 今開いているコースの中で一括登録している場合は、そのコースを優先（CSVのコース欄は無視）
+          const course = (currentCourse !== 'all') ? currentCourse : (r[2] || '').trim();
           const schedule = parseScheduleField(r[3] || '');
           const phone = (r[4] || '').trim();
           showToast('取り込み中… ('+(i+1)+'/'+rows.length+') '+name);
