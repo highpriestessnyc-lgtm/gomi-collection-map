@@ -126,7 +126,9 @@
   .leaflet-popup-content{margin:12px 14px;}
   .popup-name{font-weight:800; font-size:15px; margin-bottom:2px;}
   .popup-meta{font-size:11.5px; color:var(--amber); font-weight:700; margin-bottom:2px;}
-  .popup-addr{font-size:12px; color:var(--muted); margin-bottom:10px;}
+  .popup-addr{font-size:12px; color:var(--muted); margin-bottom:4px;}
+  .popup-addr.map-addr{color:#7fb0ff; margin-bottom:10px;}
+  .popup-addr b{color:var(--white); font-weight:700;}
   .popup-hint{font-size:10.5px; color:#7fb0ff; margin-bottom:8px;}
   .popup-actions{display:flex; gap:8px;}
   .popup-btn{flex:1; padding:9px 0; border-radius:9px; border:none; font-weight:800; font-size:13px; cursor:pointer;}
@@ -162,6 +164,7 @@
   .li-body{flex:1; min-width:0; cursor:pointer;}
   .li-name{font-weight:800; font-size:15px;}
   .li-addr{font-size:12.5px; color:var(--muted); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .li-addr-map{color:#7fb0ff;}
   .li-tag{font-size:11px; color:var(--amber); font-weight:700; margin-top:3px;}
   .li-edit{flex-shrink:0; width:34px; height:34px; border-radius:9px; background:var(--panel-2); border:1px solid var(--line);
     color:var(--muted); display:flex; align-items:center; justify-content:center; font-size:15px; cursor:pointer;}
@@ -378,7 +381,7 @@
       if(error) throw error;
       locations = (data || []).map(row => ({
         id: row.id, name: row.name, address: row.address || '', course: row.course || '',
-        lat: row.lat, lng: row.lng, schedule: row.schedule
+        lat: row.lat, lng: row.lng, schedule: row.schedule, mapAddress: row.map_address || ''
       }));
     }catch(e){
       locations = [];
@@ -390,7 +393,7 @@
     try{
       const { error } = await sb.from('gomi_locations').upsert({
         id: loc.id, name: loc.name, address: loc.address, course: loc.course,
-        lat: loc.lat, lng: loc.lng, schedule: loc.schedule
+        lat: loc.lat, lng: loc.lng, schedule: loc.schedule, map_address: loc.mapAddress || ''
       });
       if(error) throw error;
     }catch(e){
@@ -402,7 +405,7 @@
     try{
       const { error } = await sb.from('gomi_locations').upsert(rows.map(loc => ({
         id: loc.id, name: loc.name, address: loc.address, course: loc.course,
-        lat: loc.lat, lng: loc.lng, schedule: loc.schedule
+        lat: loc.lat, lng: loc.lng, schedule: loc.schedule, map_address: loc.mapAddress || ''
       })));
       if(error) throw error;
     }catch(e){
@@ -535,7 +538,8 @@
       const popupHtml =
         '<div class="popup-name">'+escapeHtml(loc.name)+'</div>'+
         (loc.course ? '<div class="popup-meta">'+escapeHtml(loc.course)+'</div>' : '')+
-        '<div class="popup-addr">'+escapeHtml(loc.address||'')+'</div>'+
+        '<div class="popup-addr"><b>📝入力:</b> '+escapeHtml(loc.address || '(未入力)')+'</div>'+
+        '<div class="popup-addr map-addr"><b>📍地図上:</b> '+escapeHtml(loc.mapAddress || '取得中…')+'</div>'+
         '<div class="popup-hint">長押ししてドラッグすると位置を修正できます</div>'+
         '<div class="popup-actions">'+
           '<button class="popup-btn edit" data-act="edit" data-id="'+loc.id+'">編集</button>'+
@@ -547,10 +551,13 @@
       marker.on('dragend', async () => {
         const ll = marker.getLatLng();
         loc.lat = ll.lat; loc.lng = ll.lng;
-        showToast('位置を更新しました。住所を確認中…');
+        loc.mapAddress = '取得中…';
+        showToast('位置を更新しました。地図上の住所を確認中…');
         renderAll();
         const addr = await reverseGeocode(ll.lat, ll.lng);
-        if(addr){ loc.address = addr; renderAll(); }
+        loc.mapAddress = addr || '';
+        renderAll();
+        marker.openPopup();
         await upsertLocationRow(loc);
       });
       marker.on('popupopen', () => {
@@ -582,7 +589,8 @@
         '<div class="status-dot '+(done?'done':'go')+'" data-act="toggle"></div>'+
         '<div class="li-body" data-act="toggle">'+
           '<div class="li-name">'+escapeHtml(loc.name)+'</div>'+
-          '<div class="li-addr">'+escapeHtml(loc.address||'')+'</div>'+
+          '<div class="li-addr">📝 '+escapeHtml(loc.address||'(未入力)')+'</div>'+
+          '<div class="li-addr li-addr-map">📍 '+escapeHtml(loc.mapAddress||'未取得')+'</div>'+
           '<div class="li-tag">'+tag+'</div>'+
         '</div>'+
         '<div class="li-edit" data-act="edit">✎</div>'+
@@ -706,7 +714,8 @@
     const loc = {
       id: 'loc_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
       name: '名称未設定',
-      address: '住所を取得中…',
+      address: '',
+      mapAddress: '住所を取得中…',
       course: currentCourse !== 'all' ? currentCourse : '',
       lat: latlng.lat, lng: latlng.lng,
       schedule: 'daily'
@@ -716,7 +725,7 @@
     showToast('ピンを置いた。あとでリストから名前を編集してね');
 
     const addr = await reverseGeocode(latlng.lat, latlng.lng);
-    loc.address = addr || '';
+    loc.mapAddress = addr || '';
     renderAll();
     await upsertLocationRow(loc);
   }
@@ -923,7 +932,7 @@
     await deleteLocationRow(idToDelete);
   };
 
-  async function commitSave(geo){
+  async function commitSave(geo, mapAddress){
     const name = document.getElementById('inName').value.trim();
     const addrInput = document.getElementById('inAddr').value.trim();
     const course = document.getElementById('inCourse').value.trim();
@@ -934,10 +943,12 @@
       loc = locations.find(l => l.id === editingId);
       loc.name = name; loc.address = addrInput; loc.course = course; loc.schedule = schedule;
       loc.lat = geo.lat; loc.lng = geo.lng;
+      if(mapAddress !== undefined) loc.mapAddress = mapAddress;
     } else {
       loc = {
         id: 'loc_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
-        name, address: addrInput, course, lat: geo.lat, lng: geo.lng, schedule
+        name, address: addrInput, course, lat: geo.lat, lng: geo.lng, schedule,
+        mapAddress: mapAddress || ''
       };
       locations.push(loc);
     }
@@ -1046,7 +1057,7 @@
 
     // 優先順位: ①座標の直接貼り付け ②検索で選んだ候補 ③(編集時)既存位置を維持 ④新規はエリア付近に仮置き
     const parsed = tryParseLatLng(addrInput);
-    let geo, autoDefaulted = false;
+    let geo, autoDefaulted = false, positionChanged = true;
 
     if(parsed){
       geo = parsed;
@@ -1056,6 +1067,7 @@
       // 住所を打ち替えていない場合は既存の位置を維持（ドラッグで置いた位置を勝手に動かさない）
       const existing = locations.find(l => l.id === editingId);
       geo = {lat: existing.lat, lng: existing.lng};
+      positionChanged = false;
     } else {
       // 新規かつ座標未指定 → 今のエリア付近に仮ピン
       const c = currentPos || (map ? map.getCenter() : TENMONKAN_CENTER);
@@ -1063,12 +1075,13 @@
       autoDefaulted = true;
     }
 
-    if(parsed){
-      const addr = await reverseGeocode(geo.lat, geo.lng);
-      if(addr) document.getElementById('inAddr').value = addr;
+    let mapAddress;
+    if(positionChanged){
+      mapAddress = await reverseGeocode(geo.lat, geo.lng);
+      if(parsed) document.getElementById('inAddr').value = mapAddress || addrInput;
     }
 
-    await commitSave(geo);
+    await commitSave(geo, mapAddress);
     showToast(autoDefaulted ? '保存しました。地図でピンをドラッグして正確な位置に合わせてください' : '保存しました');
   };
 
@@ -1132,18 +1145,21 @@
           showToast('取り込み中… ('+(i+1)+'/'+rows.length+') '+name);
 
           let geo = null;
+          let mapAddress = '';
           if(address){
             geo = await geocodeAddressForImport(address);
+            if(geo) mapAddress = address; // 住所検索がヒットした場合はその住所をそのまま採用
             await new Promise(r => setTimeout(r, 1100)); // Nominatimのレート制限(1req/秒)対策
           }
           if(!geo){
             const c = currentPos || (map ? map.getCenter() : TENMONKAN_CENTER);
             geo = {lat: c.lat, lng: c.lng};
+            mapAddress = '仮位置（要ドラッグ調整）';
           }
 
           newLocs.push({
             id: 'loc_'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+i,
-            name, address, course, lat: geo.lat, lng: geo.lng, schedule
+            name, address, course, lat: geo.lat, lng: geo.lng, schedule, mapAddress
           });
         }
 
