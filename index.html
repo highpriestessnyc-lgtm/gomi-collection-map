@@ -44,6 +44,13 @@
   .course-card .cc-count{font-size:22px; font-weight:800; color:var(--amber); font-variant-numeric:tabular-nums; white-space:nowrap;}
   .course-card .cc-count small{display:block; font-size:11px; color:var(--muted); font-weight:700; text-align:right;}
   .course-card.all-card{border-color:var(--amber); background:#241d0d;}
+  .course-card.add-card{border:1px dashed var(--muted); background:transparent; justify-content:flex-start;}
+  .course-card.add-card .cc-name{color:var(--amber);}
+  .cc-edit{
+    flex-shrink:0; width:30px; height:30px; border-radius:8px; background:var(--panel-2); border:1px solid var(--line);
+    color:var(--muted); display:flex; align-items:center; justify-content:center; font-size:13px; margin-left:8px;
+  }
+  .cc-edit:active{background:var(--amber); color:#1a1400;}
   .home-empty{text-align:center; color:var(--muted); font-size:13.5px; line-height:1.9; margin-top:40px; padding:0 24px;}
 
   /* ---- Work container ---- */
@@ -166,6 +173,19 @@
   .li-addr{font-size:12.5px; color:var(--muted); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .li-addr-map{color:#7fb0ff;}
   .li-tag{font-size:11px; color:var(--amber); font-weight:700; margin-top:3px;}
+  .li-reorder{flex-shrink:0; display:flex; flex-direction:column; gap:4px;}
+  .li-move{
+    width:30px; height:24px; border-radius:7px; background:var(--panel-2); border:1px solid var(--line);
+    color:var(--muted); display:flex; align-items:center; justify-content:center; font-size:12px; cursor:pointer;
+  }
+  .li-move:active{background:var(--amber); color:#1a1400;}
+  .li-call{
+    flex-shrink:0; width:34px; height:34px; border-radius:9px; background:#12301e; border:1px solid #1f5a38;
+    color:#7fe0a8; display:flex; align-items:center; justify-content:center; font-size:15px; text-decoration:none;
+  }
+  .popup-phone{
+    display:block; font-size:13px; font-weight:800; color:#7fe0a8; margin-bottom:8px; text-decoration:none;
+  }
   .li-edit{flex-shrink:0; width:34px; height:34px; border-radius:9px; background:var(--panel-2); border:1px solid var(--line);
     color:var(--muted); display:flex; align-items:center; justify-content:center; font-size:15px; cursor:pointer;}
   .empty-note{text-align:center; color:var(--muted); font-size:13px; margin-top:60px; line-height:1.8;}
@@ -232,7 +252,7 @@
   .candidate-item:active{background:var(--amber); color:#1a1400;}
   .candidate-item small{display:block; color:var(--muted); font-size:11px; margin-top:2px;}
   .candidate-item:active small{color:#4a3a10;}
-  .tab, .course-chip, .quick-chip, .day-chip, .list-item, .status-dot, .li-body, .li-edit,
+  .tab, .course-chip, .quick-chip, .day-chip, .list-item, .status-dot, .li-body, .li-edit, .li-move, .li-call, .cc-edit,
   .fab, .style-toggle, .locate-btn, .sort-toggle, .btn, .candidate-item, .popup-btn{
     touch-action: manipulation;
   }
@@ -324,6 +344,10 @@
       <div class="quick-chips" id="courseQuick"></div>
     </div>
     <div class="field">
+      <label>電話番号（任意）</label>
+      <input id="inPhone" type="tel" placeholder="例）099-123-4567">
+    </div>
+    <div class="field">
       <label>回収スケジュール</label>
       <div class="day-grid" id="dayGrid">
         <div class="day-chip daily" data-day="daily">毎日</div>
@@ -358,6 +382,7 @@
 
   let locations = [];
   let collectedMap = {};
+  let courses = [];
   let map, markersById = {};
   let currentTab = 'map';
   let currentCourse = 'all';
@@ -381,7 +406,8 @@
       if(error) throw error;
       locations = (data || []).map(row => ({
         id: row.id, name: row.name, address: row.address || '', course: row.course || '',
-        lat: row.lat, lng: row.lng, schedule: row.schedule, mapAddress: row.map_address || ''
+        lat: row.lat, lng: row.lng, schedule: row.schedule, mapAddress: row.map_address || '',
+        sortOrder: (row.sort_order != null) ? row.sort_order : 0, phone: row.phone || ''
       }));
     }catch(e){
       locations = [];
@@ -393,7 +419,8 @@
     try{
       const { error } = await sb.from('gomi_locations').upsert({
         id: loc.id, name: loc.name, address: loc.address, course: loc.course,
-        lat: loc.lat, lng: loc.lng, schedule: loc.schedule, map_address: loc.mapAddress || ''
+        lat: loc.lat, lng: loc.lng, schedule: loc.schedule, map_address: loc.mapAddress || '',
+        sort_order: loc.sortOrder || 0, phone: loc.phone || ''
       });
       if(error) throw error;
     }catch(e){
@@ -405,7 +432,8 @@
     try{
       const { error } = await sb.from('gomi_locations').upsert(rows.map(loc => ({
         id: loc.id, name: loc.name, address: loc.address, course: loc.course,
-        lat: loc.lat, lng: loc.lng, schedule: loc.schedule, map_address: loc.mapAddress || ''
+        lat: loc.lat, lng: loc.lng, schedule: loc.schedule, map_address: loc.mapAddress || '',
+        sort_order: loc.sortOrder || 0, phone: loc.phone || ''
       })));
       if(error) throw error;
     }catch(e){
@@ -420,6 +448,60 @@
       if(error) throw error;
     }catch(e){
       showFatalBanner('削除に失敗しました: ' + (e.message || e));
+    }
+  }
+
+  async function loadCourses(){
+    try{
+      const { data, error } = await sb.from('gomi_courses').select('*').order('sort_order', {ascending:true});
+      if(error) throw error;
+      courses = (data || []).map(row => ({id: row.id, name: row.name}));
+    }catch(e){
+      courses = [];
+    }
+  }
+
+  async function insertCourse(name){
+    const row = {id: 'course_'+Date.now()+'_'+Math.random().toString(36).slice(2,7), name, sort_order: Date.now()};
+    courses.push({id: row.id, name});
+    renderHome();
+    try{
+      const { error } = await sb.from('gomi_courses').insert(row);
+      if(error) throw error;
+    }catch(e){
+      showFatalBanner('コースの追加に失敗しました: ' + (e.message || e));
+    }
+  }
+
+  async function renameCourseEverywhere(oldName, newName){
+    // 該当コースの回収先すべてを付け替え
+    const affected = locations.filter(l => (l.course || '').trim() === oldName);
+    affected.forEach(l => { l.course = newName; });
+    if(currentCourse === oldName) currentCourse = newName;
+
+    // マスターのコース名も更新（なければ新規作成）
+    const existing = courses.find(c => c.name === oldName);
+    if(existing){
+      existing.name = newName;
+    } else {
+      courses.push({id: 'course_'+Date.now()+'_'+Math.random().toString(36).slice(2,7), name: newName});
+    }
+
+    renderAll();
+    showToast('コース名を更新しました');
+
+    try{
+      if(affected.length) await upsertLocationRows(affected);
+      if(existing){
+        const { error } = await sb.from('gomi_courses').update({name: newName}).eq('id', existing.id);
+        if(error) throw error;
+      } else {
+        const created = courses[courses.length - 1];
+        const { error } = await sb.from('gomi_courses').insert({id: created.id, name: created.name, sort_order: Date.now()});
+        if(error) throw error;
+      }
+    }catch(e){
+      showFatalBanner('コース名の更新に失敗しました: ' + (e.message || e));
     }
   }
 
@@ -459,12 +541,17 @@
       .on('postgres_changes', {event:'*', schema:'public', table:'gomi_collections'}, async () => {
         await loadCollected(); renderAll();
       })
+      .on('postgres_changes', {event:'*', schema:'public', table:'gomi_courses'}, async () => {
+        await loadCourses(); renderAll();
+      })
       .subscribe();
   }
 
   function allTodays(){
     const wd = todayWd();
-    return locations.filter(l => l.schedule === 'daily' || (Array.isArray(l.schedule) && l.schedule.includes(wd)));
+    return locations
+      .filter(l => l.schedule === 'daily' || (Array.isArray(l.schedule) && l.schedule.includes(wd)))
+      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
   }
   function visibleTodays(){
     const t = allTodays();
@@ -474,6 +561,7 @@
   function courseList(){
     const set = new Set();
     locations.forEach(l => set.add(l.course && l.course.trim() ? l.course.trim() : '未設定'));
+    courses.forEach(c => { if(c.name && c.name.trim()) set.add(c.name.trim()); });
     return Array.from(set).sort();
   }
 
@@ -540,6 +628,7 @@
         (loc.course ? '<div class="popup-meta">'+escapeHtml(loc.course)+'</div>' : '')+
         '<div class="popup-addr"><b>📝入力:</b> '+escapeHtml(loc.address || '(未入力)')+'</div>'+
         '<div class="popup-addr map-addr"><b>📍地図上:</b> '+escapeHtml(loc.mapAddress || '取得中…')+'</div>'+
+        (loc.phone ? '<a class="popup-phone" href="tel:'+escapeHtml(loc.phone)+'">📞 '+escapeHtml(loc.phone)+'</a>' : '')+
         '<div class="popup-hint">長押ししてドラッグすると位置を修正できます</div>'+
         '<div class="popup-actions">'+
           '<button class="popup-btn edit" data-act="edit" data-id="'+loc.id+'">編集</button>'+
@@ -579,12 +668,19 @@
       el.innerHTML = '<div class="empty-note">本日回収予定の場所がありません。<br>右下の「＋」から回収先を追加してください。</div>';
       return;
     }
-    el.innerHTML = todays.map(loc => {
+    el.innerHTML = todays.map((loc, i) => {
       const done = !!collectedMap[loc.id];
       let tag = (loc.schedule === 'daily' ? '毎日回収' : '曜日指定') + (loc.course ? ' ・ '+escapeHtml(loc.course) : '');
       if(currentPos){
         tag += ' ・ <span class="li-dist">'+formatDist(distMeters(currentPos, loc))+'</span>';
       }
+      const reorderHtml = sortByDistance ? '' :
+        '<div class="li-reorder">'+
+          '<div class="li-move" data-act="up" '+(i===0?'style="opacity:.25;pointer-events:none;"':'')+'>▲</div>'+
+          '<div class="li-move" data-act="down" '+(i===todays.length-1?'style="opacity:.25;pointer-events:none;"':'')+'>▼</div>'+
+        '</div>';
+      const callHtml = loc.phone ?
+        '<a class="li-call" href="tel:'+escapeHtml(loc.phone)+'" onclick="event.stopPropagation()">📞</a>' : '';
       return '<div class="list-item '+(done?'done':'')+'" data-id="'+loc.id+'">'+
         '<div class="status-dot '+(done?'done':'go')+'" data-act="toggle"></div>'+
         '<div class="li-body" data-act="toggle">'+
@@ -593,6 +689,8 @@
           '<div class="li-addr li-addr-map">📍 '+escapeHtml(loc.mapAddress||'未取得')+'</div>'+
           '<div class="li-tag">'+tag+'</div>'+
         '</div>'+
+        reorderHtml+
+        callHtml+
         '<div class="li-edit" data-act="edit">✎</div>'+
       '</div>';
     }).join('');
@@ -600,7 +698,24 @@
       const id = node.dataset.id;
       node.querySelectorAll('[data-act="toggle"]').forEach(n => n.onclick = () => toggleCollected(id));
       node.querySelector('[data-act="edit"]').onclick = () => openSheet(id);
+      const upBtn = node.querySelector('[data-act="up"]');
+      const downBtn = node.querySelector('[data-act="down"]');
+      if(upBtn) upBtn.onclick = () => moveItem(id, -1);
+      if(downBtn) downBtn.onclick = () => moveItem(id, 1);
     });
+  }
+
+  async function moveItem(id, direction){
+    const list = orderedTodays();
+    const idx = list.findIndex(l => l.id === id);
+    const swapIdx = idx + direction;
+    if(idx === -1 || swapIdx < 0 || swapIdx >= list.length) return;
+    const a = list[idx], b = list[swapIdx];
+    const tmp = a.sortOrder || 0;
+    a.sortOrder = b.sortOrder || 0;
+    b.sortOrder = tmp;
+    renderAll();
+    await upsertLocationRows([a, b]);
   }
 
   function renderAll(){
@@ -617,25 +732,29 @@
     const todays = allTodays();
     const wrap = document.getElementById('courseCards');
 
+    const addCourseHtml = '<div class="course-card add-card" id="addCourseCard"><div><div class="cc-name">＋ 新規コース</div><div class="cc-sub">コース名を作成</div></div></div>';
+
     if(locations.length === 0){
-      wrap.innerHTML = '<div class="home-empty">まだ回収先が登録されていません。<br>「すべて表示」から地図を開いて、右下の「＋」または長押しで登録を始めてください。</div>'+
+      wrap.innerHTML = addCourseHtml +
+        '<div class="home-empty">まだ回収先が登録されていません。<br>「すべて表示」から地図を開いて、右下の「＋」または長押しで登録を始めてください。</div>'+
         '<div class="course-card all-card" data-course="all"><div><div class="cc-name">すべて表示</div><div class="cc-sub">コース未設定でまず始める</div></div><div class="cc-count">→</div></div>';
     } else {
-      const courses = courseList();
+      const courseNames = courseList();
       let html = '<div class="course-card all-card" data-course="all"><div><div class="cc-name">すべて表示</div><div class="cc-sub">全コース合算</div></div>'+
         '<div class="cc-count">'+(todays.length - todays.filter(l=>collectedMap[l.id]).length)+'<small>残り / '+todays.length+'件</small></div></div>';
-      html += courses.map(c => {
+      html += courseNames.map(c => {
         const list = todays.filter(l => (l.course || '未設定') === c);
         const done = list.filter(l => collectedMap[l.id]).length;
         const remain = list.length - done;
+        const editBtn = c === '未設定' ? '' : '<div class="cc-edit" data-rename="'+escapeHtml(c)+'">✎</div>';
         return '<div class="course-card" data-course="'+escapeHtml(c)+'"><div><div class="cc-name">'+escapeHtml(c)+'</div>'+
           '<div class="cc-sub">本日 '+list.length+'件</div></div>'+
-          '<div class="cc-count">'+remain+'<small>残り / '+list.length+'件</small></div></div>';
+          '<div class="cc-count">'+remain+'<small>残り / '+list.length+'件</small></div>'+editBtn+'</div>';
       }).join('');
-      wrap.innerHTML = html;
+      wrap.innerHTML = addCourseHtml + html;
     }
 
-    wrap.querySelectorAll('.course-card').forEach(card => {
+    wrap.querySelectorAll('.course-card[data-course]').forEach(card => {
       card.onclick = () => {
         currentCourse = card.dataset.course;
         appView = 'work';
@@ -643,6 +762,29 @@
         renderAll();
       };
     });
+    wrap.querySelectorAll('.cc-edit').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const oldName = btn.dataset.rename;
+        const newName = prompt('コース名を変更', oldName);
+        if(newName && newName.trim() && newName.trim() !== oldName){
+          renameCourseEverywhere(oldName, newName.trim());
+        }
+      };
+    });
+    const addBtn = document.getElementById('addCourseCard');
+    if(addBtn){
+      addBtn.onclick = () => {
+        const name = prompt('新しいコース名を入力してください（例: コースC）');
+        if(name && name.trim()){
+          if(courseList().includes(name.trim())){
+            showToast('そのコース名は既に存在します');
+          } else {
+            insertCourse(name.trim());
+          }
+        }
+      };
+    }
   }
 
   function showView(){
@@ -718,7 +860,7 @@
       mapAddress: '住所を取得中…',
       course: currentCourse !== 'all' ? currentCourse : '',
       lat: latlng.lat, lng: latlng.lng,
-      schedule: 'daily'
+      schedule: 'daily', sortOrder: Date.now()
     };
     locations.push(loc);
     renderAll();
@@ -881,12 +1023,14 @@
       document.getElementById('inName').value = loc.name || '';
       document.getElementById('inAddr').value = loc.address || '';
       document.getElementById('inCourse').value = loc.course || '';
+      document.getElementById('inPhone').value = loc.phone || '';
       selectedDays = new Set(loc.schedule === 'daily' ? ['daily'] : (loc.schedule || []));
     } else {
       document.getElementById('sheetTitle').textContent = '回収先を追加';
       document.getElementById('inName').value = '';
       document.getElementById('inAddr').value = '';
       document.getElementById('inCourse').value = '';
+      document.getElementById('inPhone').value = '';
       selectedDays = new Set();
     }
     document.querySelectorAll('.day-chip').forEach(c => c.classList.toggle('on', selectedDays.has(c.dataset.day)));
@@ -936,19 +1080,20 @@
     const name = document.getElementById('inName').value.trim();
     const addrInput = document.getElementById('inAddr').value.trim();
     const course = document.getElementById('inCourse').value.trim();
+    const phone = document.getElementById('inPhone').value.trim();
     const schedule = selectedDays.has('daily') ? 'daily' : Array.from(selectedDays);
     let loc;
 
     if(editingId){
       loc = locations.find(l => l.id === editingId);
-      loc.name = name; loc.address = addrInput; loc.course = course; loc.schedule = schedule;
+      loc.name = name; loc.address = addrInput; loc.course = course; loc.schedule = schedule; loc.phone = phone;
       loc.lat = geo.lat; loc.lng = geo.lng;
       if(mapAddress !== undefined) loc.mapAddress = mapAddress;
     } else {
       loc = {
         id: 'loc_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
-        name, address: addrInput, course, lat: geo.lat, lng: geo.lng, schedule,
-        mapAddress: mapAddress || ''
+        name, address: addrInput, course, lat: geo.lat, lng: geo.lng, schedule, phone,
+        mapAddress: mapAddress || '', sortOrder: Date.now()
       };
       locations.push(loc);
     }
@@ -1142,6 +1287,7 @@
           const address = (r[1] || '').trim();
           const course = (r[2] || '').trim();
           const schedule = parseScheduleField(r[3] || '');
+          const phone = (r[4] || '').trim();
           showToast('取り込み中… ('+(i+1)+'/'+rows.length+') '+name);
 
           let geo = null;
@@ -1159,7 +1305,8 @@
 
           newLocs.push({
             id: 'loc_'+Date.now()+'_'+Math.random().toString(36).slice(2,7)+'_'+i,
-            name, address, course, lat: geo.lat, lng: geo.lng, schedule, mapAddress
+            name, address, course, lat: geo.lat, lng: geo.lng, schedule, mapAddress, phone,
+            sortOrder: Date.now() + i
           });
         }
 
@@ -1212,6 +1359,7 @@
 
     await loadLocations();
     await loadCollected();
+    await loadCourses();
     renderAll();
     subscribeRealtime();
   })();
